@@ -1,0 +1,11 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // attachments フォルダは Cloud Functions からの書き込みのみ許可
+    // 読み取りは認証不要（URL知っていれば閲覧可能）
+    match /attachments/{fileId} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

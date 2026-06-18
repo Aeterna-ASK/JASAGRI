@@ -1,0 +1,26 @@
+{
+  "name": "orgaly",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "firebase": "^12.12.1",
+    "lucide-vue-next": "^1.0.0",
+    "mailparser": "^3.9.8",
+    "pdf-lib": "^1.17.1",
+    "smtp-server": "^3.18.4",
+    "vue": "^3.5.30",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.5",
+    "firebase-tools": "^15.18.0",
+    "vite": "^8.0.1"
+  }
+}

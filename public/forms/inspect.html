@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>PDF座標確認ツール</title>
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<style>
+body{font-family:sans-serif;padding:20px;}
+canvas{border:1px solid #ccc;cursor:crosshair;display:block;margin:10px 0;}
+#info{background:#f0f0f0;padding:10px;margin:10px 0;font-family:monospace;}
+select,button{margin:5px;padding:5px 10px;}
+</style>
+</head>
+<body>
+<h2>PDF座標確認ツール</h2>
+<select id="sel">
+  <option value="24-02.pdf">24-02 防虫防鼠</option>
+  <option value="25-02.pdf">25-02 運送契約</option>
+  <option value="08.pdf">08 種苗証明書</option>
+</select>
+<button onclick="loadPdf()">読み込む</button>
+<div id="info">クリックした座標が表示されます</div>
+<canvas id="cv"></canvas>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+let pageH = 0, pageW = 0, scale = 1;
+async function loadPdf(){
+  const name = document.getElementById('sel').value;
+  const pdf = await pdfjsLib.getDocument(name).promise;
+  const page = await pdf.getPage(1);
+  const vp = page.getViewport({scale:1.5});
+  scale = 1.5;
+  pageW = page.getViewport({scale:1}).width;
+  pageH = page.getViewport({scale:1}).height;
+  const cv = document.getElementById('cv');
+  cv.width = vp.width; cv.height = vp.height;
+  await page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+  document.getElementById('info').textContent = `ページサイズ: ${pageW.toFixed(1)} x ${pageH.toFixed(1)} pt  |  クリックして座標確認`;
+}
+document.getElementById('cv').addEventListener('click', e=>{
+  const cv = document.getElementById('cv');
+  const r = cv.getBoundingClientRect();
+  const cx = (e.clientX - r.left) / scale;
+  const cy = pageH - (e.clientY - r.top) / scale; // PDF座標系(左下原点)
+  document.getElementById('info').textContent =
+    `クリック位置: x=${cx.toFixed(1)}, y=${cy.toFixed(1)}  (PDF座標系・左下原点)`;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "name": "Orgaly - 有機JAS管理アシスト",
+  "short_name": "Orgaly",
+  "description": "有機JAS認証のための農作業記録・管理アシスタント",
+  "id": "/?source=pwa",
+  "start_url": "/?standalone=true",
+  "display": "standalone",
+  "display_override": ["standalone", "window-controls-overlay"],
+  "orientation": "portrait",
+  "background_color": "#f0fdf4",
+  "theme_color": "#166534",
+  "icons": [
+    {
+      "src": "/oga.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/oga.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["productivity", "business", "utilities"]
+}
