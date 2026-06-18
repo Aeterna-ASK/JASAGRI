@@ -846,23 +846,29 @@ const exportExcel = () => {
 
 <style>
 /* Remove browser header/footer dates and URLs globally for printing */
-@page { margin: 0; }
+@page { 
+  margin: 0mm; 
+}
 
 /* Global Print Styles - Namespaced to delivery-note-print-active */
 @media print {
+  @page { margin: 0mm; }
+
   /* 1. Global Reset */
   body.delivery-note-print-active {
     visibility: hidden !important;
     background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
   /* Batch print page breaks and safe area padding */
   body.delivery-note-print-active .print-page-wrapper {
     page-break-after: always;
-    padding: 0.8cm; /* Reduced safe margin */
+    padding: 5mm 10mm; /* Reduced safe margin: 5mm top/bottom, 10mm left/right */
     box-sizing: border-box;
     width: 100%;
-    height: 100vh;
+    /* Removed height: 100vh to prevent blank extra pages */
   }
   body.delivery-note-print-active .print-page-wrapper:last-child {
     page-break-after: auto;
