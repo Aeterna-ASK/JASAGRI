@@ -150,31 +150,34 @@ const taxAmount = computed(() => {
 // 合計（税込）
 const totalAmount = computed(() => subtotalAmount.value + taxAmount.value);
 
-// プレビュー表示用：保存済みの generatedNote から小計・税額を算出
-const previewSubtotal = computed(() => {
-  if (!generatedNote.value) return 0;
-  // 保存時に subtotal が記録されている場合はそれを使う
-  if (generatedNote.value.subtotal != null) return generatedNote.value.subtotal;
-  // なければ itemDetails から再計算
-  const raw = (generatedNote.value.itemDetails || []).reduce(
+const selectedNoteIds = ref([]);
+const selectedNotesForPrint = ref([]);
+
+// プレビュー表示用：各 note から小計・税額を算出するメソッド
+const getPreviewSubtotal = (note) => {
+  if (!note) return 0;
+  if (note.subtotal != null) return note.subtotal;
+  const raw = (note.itemDetails || []).reduce(
     (s, i) => s + (Number(i.quantity || 0) * Number(i.unitPrice || 0)), 0
   );
   return applyRounding(raw);
-});
-const previewTax    = computed(() => {
-  if (generatedNote.value?.taxAmount != null) return generatedNote.value.taxAmount;
-  const rate = (generatedNote.value?.farmInfo?.taxRate != null) 
-    ? Number(generatedNote.value.farmInfo.taxRate) 
-    : ((state.farmInfo.taxRate != null) ? Number(state.farmInfo.taxRate) : 8);
-  return applyRounding(previewSubtotal.value * (rate / 100));
-});
-const previewTotal  = computed(() => {
-  return previewSubtotal.value + previewTax.value;
-});
+};
 
-const organicRemark = computed(() => {
-  if (!generatedNote.value || !generatedNote.value.itemDetails) return '';
-  const items = generatedNote.value.itemDetails;
+const getPreviewTax = (note) => {
+  if (note?.taxAmount != null) return note.taxAmount;
+  const rate = (note?.farmInfo?.taxRate != null) 
+    ? Number(note.farmInfo.taxRate) 
+    : ((state.farmInfo.taxRate != null) ? Number(state.farmInfo.taxRate) : 8);
+  return applyRounding(getPreviewSubtotal(note) * (rate / 100));
+};
+
+const getPreviewTotal = (note) => {
+  return getPreviewSubtotal(note) + getPreviewTax(note);
+};
+
+const getOrganicRemark = (note) => {
+  if (!note || !note.itemDetails) return '';
+  const items = note.itemDetails;
   const organicItems = items.filter(i => i.isOrganic);
   
   if (organicItems.length === 0) {
@@ -182,11 +185,10 @@ const organicRemark = computed(() => {
   } else if (organicItems.length === items.length) {
     return '【備考】有機JAS格付確認済み（JASマーク表示品）';
   } else {
-    // 複数の有機品目がある場合は、それらを列挙する
     const names = organicItems.map(i => i.fullName).join('、');
     return `【備考】${names}は有機JAS格付確認済み（JASマーク表示品）`;
   }
-});
+};
 
 // 過去に納品した商品のユニークリストと単価情報
 const uniquePastItems = computed(() => {
@@ -316,12 +318,41 @@ const handleSave = () => {
 };
 
 const viewNote = (note) => {
-  generatedNote.value = {
+  let details = note.itemDetails;
+  if (!details) {
+    details = [{ fullName: note.items, quantity: '', unitPrice: note.amount, isOrganic: true }];
+  }
+  selectedNotesForPrint.value = [{
     ...note,
     farmInfo: note.farmInfo || { ...state.farmInfo },
-    itemDetails: note.itemDetails || []
-  };
+    itemDetails: details
+  }];
   isPreviewOpen.value = true;
+};
+
+const handleBatchPrint = () => {
+  const notes = filteredAndSortedDeliveryNotes.value.filter(n => selectedNoteIds.value.includes(n.id));
+  if (notes.length === 0) return;
+  selectedNotesForPrint.value = notes.map(n => {
+    let details = n.itemDetails;
+    if (!details) {
+      details = [{ fullName: n.items, quantity: '', unitPrice: n.amount, isOrganic: true }];
+    }
+    return {
+      ...n,
+      farmInfo: n.farmInfo || { ...state.farmInfo },
+      itemDetails: details
+    };
+  });
+  isPreviewOpen.value = true;
+};
+
+const toggleAll = (e) => {
+  if (e.target.checked) {
+    selectedNoteIds.value = filteredAndSortedDeliveryNotes.value.map(n => n.id);
+  } else {
+    selectedNoteIds.value = [];
+  }
 };
 
 const editNote = (note) => {
@@ -445,6 +476,9 @@ const exportExcel = () => {
         <button @click="isAdding = true; addItem();" class="btn-primary shadow-glow">
           <Plus size="20" /> 納品書の新規作成
         </button>
+        <button v-if="selectedNoteIds.length > 0" @click="handleBatchPrint" class="btn-primary shadow-glow" style="background: var(--primary-color); border: 1px solid var(--primary-color);">
+          <Printer size="18" /> 一括印刷（{{ selectedNoteIds.length }}件）
+        </button>
         <button v-if="unassignedCount > 0" @click="actions.bulkAssignSlipNumbers()" class="btn-warning">
           <FileText size="18" /> 伝票番号を一括採番（{{ unassignedCount }}件）
         </button>
@@ -484,6 +518,9 @@ const exportExcel = () => {
         <table class="modern-table">
           <thead>
             <tr>
+              <th width="40" class="text-center">
+                <input type="checkbox" @change="toggleAll" :checked="selectedNoteIds.length > 0 && selectedNoteIds.length === filteredAndSortedDeliveryNotes.length" />
+              </th>
               <th width="100">伝票番号</th>
               <th width="120">発行日</th>
               <th width="200">納品先</th>
@@ -494,6 +531,9 @@ const exportExcel = () => {
           </thead>
           <tbody>
             <tr v-for="note in filteredAndSortedDeliveryNotes" :key="note.id" class="hover-row">
+              <td class="text-center" @click.stop>
+                <input type="checkbox" v-model="selectedNoteIds" :value="note.id" />
+              </td>
               <td class="slip-no">{{ note.slipNo || '-' }}</td>
               <td class="date">{{ note.date }}</td>
               <td>
@@ -593,10 +633,10 @@ const exportExcel = () => {
 
     <!-- PDF Preview -->
     <Transition name="fade">
-      <div v-if="isPreviewOpen && generatedNote" class="preview-overlay">
+      <div v-if="isPreviewOpen && selectedNotesForPrint.length > 0" class="preview-overlay">
         <div class="preview-content-card">
           <div class="preview-header-actions">
-            <h3>納品書プレビュー</h3>
+            <h3>納品書プレビュー {{ selectedNotesForPrint.length > 1 ? `（全${selectedNotesForPrint.length}件）` : '' }}</h3>
             <div class="btn-group-row">
               <!-- 印刷向き切替 -->
               <div class="orientation-toggle">
@@ -618,70 +658,73 @@ const exportExcel = () => {
             </div>
           </div>
           <div class="printable-document" id="delivery-note-doc">
-            <div class="doc-header">
-              <h1>納品書</h1>
-              <div class="doc-meta">
-                <p>発行日: {{ generatedNote.date }}</p>
-                <p>伝票番号: {{ generatedNote.slipNo || '-' }}</p>
+            <!-- 複数枚印刷のためのループ -->
+            <div v-for="(note, index) in selectedNotesForPrint" :key="note.id" class="print-page-wrapper">
+              <div class="doc-header">
+                <h1>納品書</h1>
+                <div class="doc-meta">
+                  <p>発行日: {{ note.date }}</p>
+                  <p>伝票番号: {{ note.slipNo || '-' }}</p>
+                </div>
               </div>
-            </div>
-            <div class="doc-addresses">
-              <div class="dest-address">
-                <h2>{{ generatedNote.partnerName }} 御中</h2>
-                <p>いつも大変お世話になっております。</p>
-                <p>下記の通り納品申し上げます。</p>
+              <div class="doc-addresses">
+                <div class="dest-address">
+                  <h2>{{ note.partnerName }} 御中</h2>
+                  <p>いつも大変お世話になっております。</p>
+                  <p>下記の通り納品申し上げます。</p>
+                </div>
+                <div class="sender-address" v-if="note.farmInfo">
+                  <h3>{{ note.farmInfo.name }}</h3>
+                  <p>〒{{ note.farmInfo.postalCode }}</p>
+                  <p>{{ note.farmInfo.address }}</p>
+                  <p>TEL: {{ note.farmInfo.tel }}</p>
+                  <p>代表者: {{ note.farmInfo.representative }}</p>
+                  <p v-if="note.farmInfo.invoiceNo" class="invoice-no">
+                    登録番号: {{ note.farmInfo.invoiceNo }}
+                  </p>
+                </div>
               </div>
-              <div class="sender-address" v-if="generatedNote.farmInfo">
-                <h3>{{ generatedNote.farmInfo.name }}</h3>
-                <p>〒{{ generatedNote.farmInfo.postalCode }}</p>
-                <p>{{ generatedNote.farmInfo.address }}</p>
-                <p>TEL: {{ generatedNote.farmInfo.tel }}</p>
-                <p>代表者: {{ generatedNote.farmInfo.representative }}</p>
-                <p v-if="generatedNote.farmInfo.invoiceNo" class="invoice-no">
-                  登録番号: {{ generatedNote.farmInfo.invoiceNo }}
-                </p>
+              <div class="doc-total-box">
+                <span class="total-label">合計金額</span>
+                <span class="val">¥{{ getPreviewTotal(note).toLocaleString() }}-</span>
+                <span class="tax-info">（消費税{{ note.farmInfo?.taxRate ?? state.farmInfo.taxRate ?? 8 }}%込）</span>
               </div>
-            </div>
-            <div class="doc-total-box">
-              <span class="total-label">合計金額</span>
-              <span class="val">¥{{ previewTotal.toLocaleString() }}-</span>
-              <span class="tax-info">（消費税{{ generatedNote?.farmInfo?.taxRate ?? state.farmInfo.taxRate ?? 8 }}%込）</span>
-            </div>
-            <table class="doc-items-table">
-              <thead>
-                <tr><th>品名</th><th class="text-right">数量</th><th class="text-right">単価</th><th class="text-right">金額</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="(item, idx) in generatedNote.itemDetails" :key="idx">
-                  <td>{{ item.fullName }}</td>
-                  <td class="text-right">{{ item.quantity }}{{ item.unit }}</td>
-                  <td class="text-right">¥{{ applyRounding(item.unitPrice || 0).toLocaleString() }}</td>
-                  <td class="text-right">¥{{ applyRounding(Number(item.quantity || 0) * Number(item.unitPrice || 0)).toLocaleString() }}</td>
-                </tr>
-              </tbody>
-            </table>
+              <table class="doc-items-table">
+                <thead>
+                  <tr><th>品名</th><th class="text-right">数量</th><th class="text-right">単価</th><th class="text-right">金額</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(item, idx) in note.itemDetails" :key="idx">
+                    <td>{{ item.fullName }}</td>
+                    <td class="text-right">{{ item.quantity }}{{ item.unit }}</td>
+                    <td class="text-right">¥{{ applyRounding(item.unitPrice || 0).toLocaleString() }}</td>
+                    <td class="text-right">¥{{ applyRounding(Number(item.quantity || 0) * Number(item.unitPrice || 0)).toLocaleString() }}</td>
+                  </tr>
+                </tbody>
+              </table>
 
-            <!-- 小計・消費税・合計 -->
-            <table class="doc-subtotal-table">
-              <tbody>
-                <tr>
-                  <td class="subtotal-label">小計（税抜）</td>
-                  <td class="subtotal-val">¥{{ previewSubtotal.toLocaleString() }}</td>
-                </tr>
-                <tr>
-                  <td class="subtotal-label">消費税額（{{ generatedNote?.farmInfo?.taxRate ?? state.farmInfo.taxRate ?? 8 }}%）</td>
-                  <td class="subtotal-val">¥{{ previewTax.toLocaleString() }}</td>
-                </tr>
-                <tr class="grand-total-row">
-                  <td class="subtotal-label">合計（税込）</td>
-                  <td class="subtotal-val">¥{{ previewTotal.toLocaleString() }}</td>
-                </tr>
-              </tbody>
-            </table>
+              <!-- 小計・消費税・合計 -->
+              <table class="doc-subtotal-table">
+                <tbody>
+                  <tr>
+                    <td class="subtotal-label">小計（税抜）</td>
+                    <td class="subtotal-val">¥{{ getPreviewSubtotal(note).toLocaleString() }}</td>
+                  </tr>
+                  <tr>
+                    <td class="subtotal-label">消費税額（{{ note.farmInfo?.taxRate ?? state.farmInfo.taxRate ?? 8 }}%）</td>
+                    <td class="subtotal-val">¥{{ getPreviewTax(note).toLocaleString() }}</td>
+                  </tr>
+                  <tr class="grand-total-row">
+                    <td class="subtotal-label">合計（税込）</td>
+                    <td class="subtotal-val">¥{{ getPreviewTotal(note).toLocaleString() }}</td>
+                  </tr>
+                </tbody>
+              </table>
 
-            <div class="doc-footer">
-              <p v-if="organicRemark">{{ organicRemark }}</p>
-              <p>納品した農産物の産地　【鹿児島県産】</p>
+              <div class="doc-footer">
+                <p v-if="getOrganicRemark(note)">{{ getOrganicRemark(note) }}</p>
+                <p>納品した農産物の産地　【鹿児島県産】</p>
+              </div>
             </div>
           </div>
         </div>
@@ -808,6 +851,14 @@ const exportExcel = () => {
   body.delivery-note-print-active {
     visibility: hidden !important;
     background: white !important;
+  }
+
+  /* Batch print page breaks */
+  body.delivery-note-print-active .print-page-wrapper {
+    page-break-after: always;
+  }
+  body.delivery-note-print-active .print-page-wrapper:last-child {
+    page-break-after: auto;
   }
 
   /* 2. Absolute Isolation using Visibility */
