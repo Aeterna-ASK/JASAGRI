@@ -473,10 +473,10 @@ const exportExcel = () => {
         </div>
       </div>
       <div class="btn-group">
-        <button v-if="selectedNoteIds.length === 0" @click="isAdding = true; addItem();" class="btn-primary shadow-glow">
+        <button v-show="selectedNoteIds.length === 0" @click="isAdding = true; addItem();" class="btn-primary shadow-glow">
           <Plus size="20" /> 納品書の新規作成
         </button>
-        <button v-else @click="handleBatchPrint" class="btn-primary shadow-glow" style="background: var(--primary-color); border: 1px solid var(--primary-color);">
+        <button v-show="selectedNoteIds.length > 0" @click="handleBatchPrint" class="btn-primary shadow-glow">
           <Printer size="18" /> 一括印刷（{{ selectedNoteIds.length }}件）
         </button>
         <button v-if="unassignedCount > 0" @click="actions.bulkAssignSlipNumbers()" class="btn-warning">
@@ -845,11 +845,11 @@ const exportExcel = () => {
 </style>
 
 <style>
+/* Remove browser header/footer dates and URLs globally for printing */
+@page { margin: 0; }
+
 /* Global Print Styles - Namespaced to delivery-note-print-active */
 @media print {
-  /* Remove browser header/footer dates and URLs */
-  @page { margin: 0; }
-
   /* 1. Global Reset */
   body.delivery-note-print-active {
     visibility: hidden !important;
@@ -859,7 +859,7 @@ const exportExcel = () => {
   /* Batch print page breaks and safe area padding */
   body.delivery-note-print-active .print-page-wrapper {
     page-break-after: always;
-    padding: 1.5cm; /* Safe margin so content isn't cut off */
+    padding: 0.8cm; /* Reduced safe margin */
     box-sizing: border-box;
     width: 100%;
     height: 100vh;
