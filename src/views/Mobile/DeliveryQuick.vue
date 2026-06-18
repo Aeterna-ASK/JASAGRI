@@ -105,6 +105,21 @@ const totalAmount = computed(() => {
   return (items.value || []).reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unitPrice || 0)), 0);
 });
 
+const organicRemark = computed(() => {
+  if (!generatedNote.value || !generatedNote.value.itemDetails) return '';
+  const itemDetails = generatedNote.value.itemDetails;
+  const organicItems = itemDetails.filter(i => i.isOrganic);
+  
+  if (organicItems.length === 0) {
+    return '';
+  } else if (organicItems.length === itemDetails.length) {
+    return '【備考】有機JAS格付確認済み（JASマーク表示品）';
+  } else {
+    const names = organicItems.map(i => i.fullName || i.name).join('、');
+    return `【備考】${names}は有機JAS格付確認済み（JASマーク表示品）`;
+  }
+});
+
 const addItem = () => {
   items.value.push({ name: '', quantity: null, unit: 'kg', unitPrice: null, isOrganic: true });
 };
@@ -425,7 +440,7 @@ const closePreview = () => {
               </table>
 
               <div class="doc-footer">
-                <p>【備考】有機JAS格付確認済み（JASマーク表示品）</p>
+                <p v-if="organicRemark">{{ organicRemark }}</p>
                 <p>納品した農産物の産地　【鹿児島県産】</p>
               </div>
             </div>
