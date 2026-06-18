@@ -482,6 +482,10 @@ const exportExcel = () => {
         <button v-if="unassignedCount > 0" @click="actions.bulkAssignSlipNumbers()" class="btn-warning">
           <FileText size="18" /> 伝票番号を一括採番（{{ unassignedCount }}件）
         </button>
+        <!-- 臨時：既存伝票の一括日付順振り直しボタン -->
+        <button @click="actions.migrateAllSlipNumbersToDateBased()" class="btn-warning" style="background: #fecdd3; border-color: #f43f5e; color: #9f1239;">
+          <FileText size="18" /> 伝票番号を日付順に振り直す (1回のみ)
+        </button>
         <!-- Ri-Ry-Link 一括同期ボタン -->
         <button @click="bulkSyncToRiryLink" class="btn-rirylink" :disabled="isBulkSyncing">
           <span v-if="isBulkSyncing" class="sync-spinner">⟳</span>
