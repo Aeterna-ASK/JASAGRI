@@ -397,7 +397,7 @@ const handlePrint = () => {
     styleEl.id = 'dn-page-orientation';
     document.head.appendChild(styleEl);
   }
-  styleEl.textContent = `@page { size: A4 ${printOrientation.value}; margin: 15mm; }`;
+  styleEl.textContent = `@page { size: A4 ${printOrientation.value}; margin: 0; }`;
 
   document.body.classList.add('delivery-note-print-active');
   requestAnimationFrame(() => {
@@ -476,7 +476,7 @@ const exportExcel = () => {
         <button @click="isAdding = true; addItem();" class="btn-primary shadow-glow">
           <Plus size="20" /> 納品書の新規作成
         </button>
-        <button v-if="selectedNoteIds.length > 0" @click="handleBatchPrint" class="btn-primary shadow-glow" style="background: var(--primary-color); border: 1px solid var(--primary-color);">
+        <button @click="handleBatchPrint" :disabled="selectedNoteIds.length === 0" class="btn-primary shadow-glow" style="background: var(--primary-color); border: 1px solid var(--primary-color); margin-left: 8px;">
           <Printer size="18" /> 一括印刷（{{ selectedNoteIds.length }}件）
         </button>
         <button v-if="unassignedCount > 0" @click="actions.bulkAssignSlipNumbers()" class="btn-warning">
@@ -856,6 +856,8 @@ const exportExcel = () => {
   /* Batch print page breaks */
   body.delivery-note-print-active .print-page-wrapper {
     page-break-after: always;
+    padding: 15mm;
+    box-sizing: border-box;
   }
   body.delivery-note-print-active .print-page-wrapper:last-child {
     page-break-after: auto;
