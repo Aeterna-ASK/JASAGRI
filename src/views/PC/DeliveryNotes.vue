@@ -397,7 +397,7 @@ const handlePrint = () => {
     styleEl.id = 'dn-page-orientation';
     document.head.appendChild(styleEl);
   }
-  styleEl.textContent = `@page { size: A4 ${printOrientation.value}; margin: 0; }`;
+  styleEl.textContent = `@page { size: A4 ${printOrientation.value}; margin: 15mm; }`;
 
   document.body.classList.add('delivery-note-print-active');
   requestAnimationFrame(() => {
@@ -473,10 +473,10 @@ const exportExcel = () => {
         </div>
       </div>
       <div class="btn-group">
-        <button @click="isAdding = true; addItem();" class="btn-primary shadow-glow">
+        <button v-if="selectedNoteIds.length === 0" @click="isAdding = true; addItem();" class="btn-primary shadow-glow">
           <Plus size="20" /> 納品書の新規作成
         </button>
-        <button @click="handleBatchPrint" :disabled="selectedNoteIds.length === 0" class="btn-primary shadow-glow" style="background: var(--primary-color); border: 1px solid var(--primary-color); margin-left: 8px;">
+        <button v-else @click="handleBatchPrint" class="btn-primary shadow-glow" style="background: var(--primary-color); border: 1px solid var(--primary-color);">
           <Printer size="18" /> 一括印刷（{{ selectedNoteIds.length }}件）
         </button>
         <button v-if="unassignedCount > 0" @click="actions.bulkAssignSlipNumbers()" class="btn-warning">
@@ -847,17 +847,22 @@ const exportExcel = () => {
 <style>
 /* Global Print Styles - Namespaced to delivery-note-print-active */
 @media print {
+  /* Remove browser header/footer dates and URLs */
+  @page { margin: 0; }
+
   /* 1. Global Reset */
   body.delivery-note-print-active {
     visibility: hidden !important;
     background: white !important;
   }
 
-  /* Batch print page breaks */
+  /* Batch print page breaks and safe area padding */
   body.delivery-note-print-active .print-page-wrapper {
     page-break-after: always;
-    padding: 15mm;
+    padding: 1.5cm; /* Safe margin so content isn't cut off */
     box-sizing: border-box;
+    width: 100%;
+    height: 100vh;
   }
   body.delivery-note-print-active .print-page-wrapper:last-child {
     page-break-after: auto;
