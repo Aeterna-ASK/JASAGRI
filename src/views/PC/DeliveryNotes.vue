@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { 
-  FileText, Plus, Download, Trash2, Eye, Search, Truck, Calendar, X, Building2, Printer
+  FileText, Plus, Download, Trash2, Eye, Search, Truck, Calendar, X, Building2, Printer, Layers
 } from 'lucide-vue-next';
 import { state, actions } from '../../store';
 import { addToRiryLink, updateInRiryLink } from '../../services/riryLinkSync.js';
@@ -12,6 +12,13 @@ const searchQuery = ref('');
 const generatedNote = ref(null);
 const editingNoteId = ref(null); // null=新規, 文字列=編集中ID
 const printOrientation = ref('portrait'); // 'portrait' = 縦 / 'landscape' = 横
+
+// 作物別集計用ステート
+const viewMode = ref('list'); // 'list' | 'aggregate'
+const todayForAggr = new Date();
+const firstDayOfThisMonth = new Date(todayForAggr.getFullYear(), todayForAggr.getMonth(), 1).toISOString().split('T')[0];
+const aggregateStartDate = ref(firstDayOfThisMonth);
+const aggregateEndDate = ref(todayForAggr.toISOString().split('T')[0]);
 
 // Ri-Ry-Link 一括同期
 const isBulkSyncing  = ref(false);
@@ -116,6 +123,54 @@ const filteredAndSortedDeliveryNotes = computed(() => {
     if (dateCompare !== 0) return dateCompare;
     return (b.id || '').localeCompare(a.id || '');
   });
+});
+
+// 作物別出荷集計データ
+const aggregatedCropData = computed(() => {
+  const start = aggregateStartDate.value;
+  const end = aggregateEndDate.value;
+  const list = state.records.t_delivery_note || [];
+  
+  // 指定期間内の納品書をフィルタ
+  const filtered = list.filter(n => {
+    const d = n.date || '';
+    if (start && d < start) return false;
+    if (end && d > end) return false;
+    return true;
+  });
+
+  const map = new Map();
+  filtered.forEach(note => {
+    (note.itemDetails || []).forEach(item => {
+      // name または fullName を使用（既存データの互換性のため）
+      const name = (item.fullName || item.name || '名称不明').trim();
+      const isOrg = item.isOrganic ? '有機' : '一般';
+      const unit = item.unit || 'kg';
+      // キーを作成: 有機か一般か＋品目名＋単位
+      const key = `${isOrg}_${name}_${unit}`;
+
+      const qty = Number(item.quantity) || 0;
+      const price = Number(item.unitPrice) || 0;
+      const amount = qty * price;
+
+      if (map.has(key)) {
+        const exist = map.get(key);
+        exist.quantity += qty;
+        exist.amount += amount;
+      } else {
+        map.set(key, {
+          name,
+          isOrganic: item.isOrganic,
+          unit,
+          quantity: qty,
+          amount: amount
+        });
+      }
+    });
+  });
+
+  // 売上順（または数量順）でソート
+  return Array.from(map.values()).sort((a, b) => b.amount - a.amount);
 });
 
 const today = () => new Date().toISOString().split('T')[0];
@@ -504,8 +559,36 @@ const exportExcel = () => {
       🔍 監査モード中：<strong>{{ state.auditMode.label }}</strong> の期間データのみ表示しています
     </div>
 
-    <!-- Search & Filters -->
-    <div class="filter-bar glass mb-2">
+    <!-- View Mode Toggle -->
+    <div class="view-toggle-bar glass mb-2 flex gap-4 p-3 rounded items-center" style="display: flex; gap: 1rem; padding: 0.75rem; align-items: center; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+      <div class="btn-group-toggle" style="display: flex; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden;">
+        <button 
+          style="padding: 0.5rem 1rem; border: none; cursor: pointer; font-weight: 500; font-size: 0.9rem;"
+          :style="viewMode === 'list' ? 'background: var(--primary-color); color: white;' : 'background: transparent; color: var(--text-color);'"
+          @click="viewMode = 'list'"
+        >
+          <FileText size="16" style="display: inline-block; vertical-align: text-bottom; margin-right: 4px;" />納品書一覧
+        </button>
+        <button 
+          style="padding: 0.5rem 1rem; border: none; cursor: pointer; font-weight: 500; font-size: 0.9rem; border-left: 1px solid var(--border-color);"
+          :style="viewMode === 'aggregate' ? 'background: var(--primary-color); color: white;' : 'background: transparent; color: var(--text-color);'"
+          @click="viewMode = 'aggregate'"
+        >
+          <Layers size="16" style="display: inline-block; vertical-align: text-bottom; margin-right: 4px;" />作物別出荷集計
+        </button>
+      </div>
+
+      <!-- 集計モード時のみ表示される日付フィルター -->
+      <div v-if="viewMode === 'aggregate'" style="display: flex; align-items: center; gap: 0.5rem;">
+        <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-color);">対象期間:</span>
+        <input type="date" v-model="aggregateStartDate" class="form-input" style="padding: 0.4rem; font-size: 0.9rem;" />
+        <span style="color: #999;">〜</span>
+        <input type="date" v-model="aggregateEndDate" class="form-input" style="padding: 0.4rem; font-size: 0.9rem;" />
+      </div>
+    </div>
+
+    <!-- Search & Filters (List Mode Only) -->
+    <div v-if="viewMode === 'list'" class="filter-bar glass mb-2">
       <div class="search-box">
         <Search size="16" class="text-muted" />
         <input v-model="searchQuery" placeholder="納品先・品目で検索..." />
@@ -513,7 +596,7 @@ const exportExcel = () => {
     </div>
 
     <!-- List View -->
-    <div class="list-section">
+    <div v-if="viewMode === 'list'" class="list-section">
       <div class="table-container glass shadow-sm">
         <table class="modern-table">
           <thead>
@@ -553,6 +636,46 @@ const exportExcel = () => {
               </td>
             </tr>
           </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Aggregate View -->
+    <div v-else-if="viewMode === 'aggregate'" class="aggregate-section">
+      <div class="table-container glass shadow-sm">
+        <table class="modern-table">
+          <thead>
+            <tr>
+              <th width="80" class="text-center">区分</th>
+              <th>品目名</th>
+              <th width="120" class="text-right">総出荷量</th>
+              <th width="150" class="text-right">総売上額</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="aggregatedCropData.length === 0">
+              <td colspan="4" class="text-center text-muted" style="padding: 2rem;">
+                指定された期間の出荷データがありません
+              </td>
+            </tr>
+            <tr v-for="(item, idx) in aggregatedCropData" :key="idx" class="hover-row">
+              <td class="text-center">
+                <span v-if="item.isOrganic" class="badge-organic" style="background: var(--organic-color); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;">有機JAS</span>
+                <span v-else style="color: #666; font-size: 0.9rem;">一般</span>
+              </td>
+              <td style="font-weight: 500;">{{ item.name }}</td>
+              <td class="text-right">{{ item.quantity }}{{ item.unit }}</td>
+              <td class="amount">¥{{ Number(item.amount || 0).toLocaleString() }}</td>
+            </tr>
+          </tbody>
+          <tfoot v-if="aggregatedCropData.length > 0">
+            <tr>
+              <th colspan="3" class="text-right" style="padding: 1rem; font-size: 1.1rem;">合計売上額</th>
+              <th class="amount" style="font-size: 1.2rem; padding-right: 1rem;">
+                ¥{{ aggregatedCropData.reduce((sum, i) => sum + i.amount, 0).toLocaleString() }}
+              </th>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
