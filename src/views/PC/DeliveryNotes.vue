@@ -169,8 +169,12 @@ const aggregatedCropData = computed(() => {
     });
   });
 
-  // 売上順（または数量順）でソート
-  return Array.from(map.values()).sort((a, b) => b.amount - a.amount);
+  // 小数点第1位未満は切り捨て（浮動小数点誤差を補正しつつ trunc）
+  // 売上順でソート
+  return Array.from(map.values()).map(item => ({
+    ...item,
+    quantity: Math.floor(Math.round(item.quantity * 10000) / 1000) / 10
+  })).sort((a, b) => b.amount - a.amount);
 });
 
 const today = () => new Date().toISOString().split('T')[0];
