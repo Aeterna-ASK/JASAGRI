@@ -13,12 +13,16 @@ const generatedNote = ref(null);
 const editingNoteId = ref(null); // null=新規, 文字列=編集中ID
 const printOrientation = ref('portrait'); // 'portrait' = 縦 / 'landscape' = 横
 
-// 作物別集計用ステート
-const viewMode = ref('list'); // 'list' | 'aggregate'
+// 作物別集計用・請求書用ステート
+const viewMode = ref('list'); // 'list' | 'aggregate' | 'invoice'
 const todayForAggr = new Date();
 const firstDayOfThisMonth = new Date(todayForAggr.getFullYear(), todayForAggr.getMonth(), 1).toISOString().split('T')[0];
 const aggregateStartDate = ref(firstDayOfThisMonth);
 const aggregateEndDate = ref(todayForAggr.toISOString().split('T')[0]);
+
+const invoiceMonth = ref(`${todayForAggr.getFullYear()}-${String(todayForAggr.getMonth() + 1).padStart(2, '0')}`);
+const isInvoicePreviewOpen = ref(false);
+const selectedInvoicePartnerId = ref(null);
 
 // Ri-Ry-Link 一括同期
 const isBulkSyncing  = ref(false);
@@ -184,6 +188,90 @@ const applyRounding = (v) => {
   return state.farmInfo.roundingMode === 'floor' ? Math.floor(n) : Math.round(n);
 };
 const round = applyRounding; // 短縮エイリアス
+
+// 請求書：月次・取引先別の集計データ
+const invoicePartnersList = computed(() => {
+  if (!invoiceMonth.value) return [];
+  const list = state.records.t_delivery_note || [];
+  
+  // 指定月に含まれる納品書をフィルタ
+  const filtered = list.filter(n => {
+    const d = n.date || '';
+    return d.startsWith(invoiceMonth.value);
+  });
+
+  const map = new Map();
+  filtered.forEach(note => {
+    const pId = note.partnerId;
+    if (!pId) return;
+
+    if (!map.has(pId)) {
+      map.set(pId, { partnerId: pId, subtotal: 0, tax: 0, total: 0, noteCount: 0 });
+    }
+    const exist = map.get(pId);
+
+    const rawSubtotal = (note.itemDetails || []).reduce(
+      (s, i) => s + (Number(i.quantity || 0) * Number(i.unitPrice || 0)), 0
+    );
+    const subtotal = applyRounding(rawSubtotal);
+    const rate = (state.farmInfo.taxRate != null) ? Number(state.farmInfo.taxRate) : 8;
+    const tax = applyRounding(subtotal * (rate / 100));
+    const total = subtotal + tax;
+
+    exist.subtotal += subtotal;
+    exist.tax += tax;
+    exist.total += total;
+    exist.noteCount += 1;
+  });
+
+  return Array.from(map.values()).sort((a, b) => b.total - a.total);
+});
+
+// 選択された取引先の請求書プレビュー用データ
+const selectedInvoiceData = computed(() => {
+  const pId = selectedInvoicePartnerId.value;
+  if (!pId || !invoiceMonth.value) return null;
+
+  const notes = (state.records.t_delivery_note || []).filter(n => {
+    return n.partnerId === pId && (n.date || '').startsWith(invoiceMonth.value);
+  }).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  const items = [];
+  let totalSubtotal = 0;
+  let totalTax = 0;
+
+  notes.forEach(note => {
+    const noteSubtotal = applyRounding(
+      (note.itemDetails || []).reduce((s, i) => s + (Number(i.quantity || 0) * Number(i.unitPrice || 0)), 0)
+    );
+    const rate = (state.farmInfo.taxRate != null) ? Number(state.farmInfo.taxRate) : 8;
+    const noteTax = applyRounding(noteSubtotal * (rate / 100));
+
+    totalSubtotal += noteSubtotal;
+    totalTax += noteTax;
+
+    (note.itemDetails || []).forEach(detail => {
+      items.push({
+        date: note.date,
+        slipNo: note.slipNo || '-',
+        name: (detail.fullName || detail.name || '名称未設定').trim(),
+        quantity: Math.floor(Math.round(Number(detail.quantity || 0) * 10000) / 1000) / 10,
+        unit: detail.unit || 'kg',
+        unitPrice: Number(detail.unitPrice) || 0,
+        amount: (Number(detail.quantity || 0) * (Number(detail.unitPrice || 0)))
+      });
+    });
+  });
+
+  return {
+    partnerId: pId,
+    month: invoiceMonth.value,
+    items,
+    subtotal: totalSubtotal,
+    tax: totalTax,
+    total: totalSubtotal + totalTax
+  };
+});
 
 const newNote = ref({
   date: today(),
@@ -466,8 +554,31 @@ const handlePrint = () => {
   });
 };
 
+const openInvoicePreview = (partnerId) => {
+  selectedInvoicePartnerId.value = partnerId;
+  isInvoicePreviewOpen.value = true;
+};
+
+const printInvoice = () => {
+  let styleEl = document.getElementById('dn-page-orientation');
+  if (!styleEl) {
+    styleEl = document.createElement('style');
+    styleEl.id = 'dn-page-orientation';
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = `@page { size: A4 portrait; margin: 15mm; }`;
+
+  document.body.classList.add('invoice-print-active');
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      window.print();
+    });
+  });
+};
+
 const handleAfterPrint = () => {
   document.body.classList.remove('delivery-note-print-active');
+  document.body.classList.remove('invoice-print-active');
 };
 
 onMounted(() => {
@@ -580,6 +691,13 @@ const exportExcel = () => {
         >
           <Layers size="16" style="display: inline-block; vertical-align: text-bottom; margin-right: 4px;" />作物別出荷集計
         </button>
+        <button 
+          style="padding: 0.5rem 1rem; border: none; cursor: pointer; font-weight: 500; font-size: 0.9rem; border-left: 1px solid var(--border-color);"
+          :style="viewMode === 'invoice' ? 'background: var(--primary-color); color: white;' : 'background: transparent; color: var(--text-color);'"
+          @click="viewMode = 'invoice'"
+        >
+          <Building2 size="16" style="display: inline-block; vertical-align: text-bottom; margin-right: 4px;" />月次請求書発行
+        </button>
       </div>
 
       <!-- 集計モード時のみ表示される日付フィルター -->
@@ -588,6 +706,12 @@ const exportExcel = () => {
         <input type="date" v-model="aggregateStartDate" class="form-input" style="padding: 0.4rem; font-size: 0.9rem;" />
         <span style="color: #999;">〜</span>
         <input type="date" v-model="aggregateEndDate" class="form-input" style="padding: 0.4rem; font-size: 0.9rem;" />
+      </div>
+
+      <!-- 請求書モード時のみ表示される月フィルター -->
+      <div v-if="viewMode === 'invoice'" style="display: flex; align-items: center; gap: 0.5rem;">
+        <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-color);">請求月:</span>
+        <input type="month" v-model="invoiceMonth" class="form-input" style="padding: 0.4rem; font-size: 0.9rem;" />
       </div>
     </div>
 
@@ -683,9 +807,129 @@ const exportExcel = () => {
         </table>
       </div>
     </div>
+
+    <!-- Invoice View -->
+    <div v-else-if="viewMode === 'invoice'" class="invoice-section">
+      <div class="table-container glass shadow-sm">
+        <table class="modern-table">
+          <thead>
+            <tr>
+              <th>請求先（取引先名）</th>
+              <th width="100" class="text-right">対象件数</th>
+              <th width="150" class="text-right">当月請求額（税込）</th>
+              <th width="180" class="text-center">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="invoicePartnersList.length === 0">
+              <td colspan="4" class="text-center text-muted" style="padding: 2rem;">
+                {{ invoiceMonth }}月に発行された納品書はありません
+              </td>
+            </tr>
+            <tr v-for="(p, idx) in invoicePartnersList" :key="idx" class="hover-row">
+              <td style="font-weight: 500;">
+                <Building2 size="16" class="text-muted" style="display:inline; margin-right:4px;" />
+                {{ getPartnerName(p.partnerId) }}
+              </td>
+              <td class="text-right">{{ p.noteCount }}件</td>
+              <td class="amount text-right" style="font-size: 1.1rem;">¥{{ Number(p.total || 0).toLocaleString() }}</td>
+              <td class="text-center">
+                <button @click="openInvoicePreview(p.partnerId)" class="btn-primary shadow-glow" style="padding: 4px 12px; font-size: 0.85rem;">
+                  <Printer size="14" /> プレビュー・印刷
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <Teleport to="body">
+    <!-- Invoice Preview Modal -->
+    <Transition name="fade">
+      <div v-if="isInvoicePreviewOpen && selectedInvoiceData" class="overlay glass-heavy" style="z-index: 2000;">
+        <div class="modal card glass scale-up print-preview-modal" style="max-width: 900px; width: 90%;">
+          <div class="modal-header hide-on-print">
+            <h3>請求書プレビュー</h3>
+            <div style="display: flex; gap: 0.5rem;">
+              <button @click="printInvoice" class="btn-primary shadow-glow"><Printer size="18" /> 印刷・PDF保存</button>
+              <button @click="isInvoicePreviewOpen = false" class="btn-close"><X size="24" /></button>
+            </div>
+          </div>
+          <div class="modal-body invoice-print-area" style="background: white; padding: 2rem; color: #333;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem;">
+              <div>
+                <h1 style="font-size: 2rem; font-weight: normal; letter-spacing: 0.5em; border-bottom: 2px solid #333; padding-bottom: 0.5rem; margin-bottom: 2rem;">請求書</h1>
+                <div style="font-size: 1.4rem; font-weight: bold; border-bottom: 1px solid #333; display: inline-block; padding-bottom: 4px;">
+                  {{ getPartnerName(selectedInvoiceData.partnerId) }} 御中
+                </div>
+                <p style="margin-top: 1.5rem;">下記の通りご請求申し上げます。</p>
+              </div>
+              <div style="text-align: right;">
+                <p>発行月：{{ selectedInvoiceData.month.replace('-', '年') }}月</p>
+                <div style="margin-top: 1rem; text-align: left; border: 1px solid #ccc; padding: 1rem; display: inline-block; border-radius: 4px;">
+                  <strong>{{ state.farmInfo.name || 'ファーム名未設定' }}</strong><br>
+                  〒{{ state.farmInfo.zipCode }}<br>
+                  {{ state.farmInfo.address }}<br>
+                  TEL: {{ state.farmInfo.phone }}<br>
+                  適格請求書発行事業者登録番号:<br>{{ state.farmInfo.invoiceNumber || '未設定' }}
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 2rem; border-bottom: 3px solid #333; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: flex-end;">
+              <span style="font-size: 1.2rem;">ご請求金額（税込）</span>
+              <span style="font-size: 2rem; font-weight: bold;">¥{{ Number(selectedInvoiceData.total || 0).toLocaleString() }} -</span>
+            </div>
+
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 2rem; font-size: 0.9rem;">
+              <thead>
+                <tr style="border-bottom: 2px solid #333; border-top: 2px solid #333;">
+                  <th style="padding: 8px 4px; text-align: left; width: 100px;">納品日</th>
+                  <th style="padding: 8px 4px; text-align: left;">品目内容</th>
+                  <th style="padding: 8px 4px; text-align: right; width: 100px;">数量</th>
+                  <th style="padding: 8px 4px; text-align: right; width: 120px;">単価</th>
+                  <th style="padding: 8px 4px; text-align: right; width: 140px;">金額</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, idx) in selectedInvoiceData.items" :key="idx" style="border-bottom: 1px dashed #ccc;">
+                  <td style="padding: 8px 4px;">{{ item.date.substring(5).replace('-', '/') }}</td>
+                  <td style="padding: 8px 4px;">{{ item.name }}</td>
+                  <td style="padding: 8px 4px; text-align: right;">{{ item.quantity }}{{ item.unit }}</td>
+                  <td style="padding: 8px 4px; text-align: right;">¥{{ item.unitPrice.toLocaleString() }}</td>
+                  <td style="padding: 8px 4px; text-align: right;">¥{{ item.amount.toLocaleString() }}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div style="width: 300px; margin-left: auto;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 1rem;">
+                <tr>
+                  <td style="padding: 4px; font-weight: bold;">小計（税抜）</td>
+                  <td style="padding: 4px; text-align: right;">¥{{ Number(selectedInvoiceData.subtotal).toLocaleString() }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 4px; font-weight: bold;">消費税（{{ state.farmInfo.taxRate || 8 }}%）</td>
+                  <td style="padding: 4px; text-align: right;">¥{{ Number(selectedInvoiceData.tax).toLocaleString() }}</td>
+                </tr>
+                <tr style="border-top: 2px solid #333;">
+                  <td style="padding: 8px 4px; font-weight: bold; font-size: 1.2rem;">合計（税込）</td>
+                  <td style="padding: 8px 4px; text-align: right; font-weight: bold; font-size: 1.2rem;">¥{{ Number(selectedInvoiceData.total).toLocaleString() }}</td>
+                </tr>
+              </table>
+            </div>
+
+            <div v-if="state.farmInfo.bankAccount" style="margin-top: 3rem; border: 1px solid #ccc; padding: 1rem; border-radius: 4px;">
+              <strong>【お振込先】</strong><br>
+              <span style="white-space: pre-wrap; display: inline-block; margin-top: 0.5rem;">{{ state.farmInfo.bankAccount }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <!-- Create Modal -->
     <Transition name="fade">
       <div v-if="isAdding" class="overlay glass-heavy">
@@ -982,7 +1226,8 @@ const exportExcel = () => {
   @page { margin: 0mm; }
 
   /* 1. Global Reset */
-  body.delivery-note-print-active {
+  body.delivery-note-print-active,
+  body.invoice-print-active {
     visibility: hidden !important;
     background: white !important;
     margin: 0 !important;
@@ -1005,6 +1250,23 @@ const exportExcel = () => {
   body.delivery-note-print-active #delivery-note-doc,
   body.delivery-note-print-active #delivery-note-doc * {
     visibility: visible !important;
+  }
+
+  /* 2.5 Invoice Modal Print Isolation */
+  body.invoice-print-active .invoice-print-area,
+  body.invoice-print-active .invoice-print-area * {
+    visibility: visible !important;
+  }
+  body.invoice-print-active .print-preview-modal,
+  body.invoice-print-active .invoice-print-area {
+    visibility: visible !important;
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
   }
 
   /* 3. Ensure structure */
