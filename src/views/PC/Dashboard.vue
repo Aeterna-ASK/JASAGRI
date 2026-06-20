@@ -4,153 +4,153 @@ import {
   BarChart3, 
   AlertTriangle, 
   CheckCircle, 
-  Clock, 
-  Calendar as CalendarIcon,
-  Search,
-  ArrowRight
+  Clock,
+  ArrowRight,
+  TrendingUp,
+  TrendingDown,
+  Activity,
+  Banknote
 } from 'lucide-vue-next';
 import { state, actions } from '../../store';
+import {
+  Chart as ChartJS,
+  Title,
+  Tooltip,
+  Legend,
+  BarElement,
+  LineElement,
+  PointElement,
+  CategoryScale,
+  LinearScale,
+} from 'chart.js';
+import { Bar, Line } from 'vue-chartjs';
 
+ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Title, Tooltip, Legend);
 
-const recentWork = computed(() => {
-  let records = [...(state.records.t_work_record || [])];
-  records.sort((a, b) => new Date(b.date) - new Date(a.date));
-  // 監査モード中は監査期間のみ表示
-  if (state.auditMode.active) {
-    if (state.auditMode.startDate) records = records.filter(r => (r.date || '') >= state.auditMode.startDate);
-    if (state.auditMode.endDate)   records = records.filter(r => (r.date || '') <= state.auditMode.endDate);
-  }
-  return records.slice(0, 5);
-});
-// 収穫専用テーブル（モバイルから入力）
-const totalHarvest = computed(() => (state.records.t_harvest || []).reduce((sum, r) => sum + (Number(r.harvestWeight) || 0), 0));
-const totalGraded  = computed(() => (state.records.t_harvest || []).reduce((sum, r) => sum + (Number(r.gradedWeight)  || 0), 0));
-const totalWaste   = computed(() => (state.records.t_harvest || []).reduce((sum, r) => sum + (Number(r.wasteWeight)   || 0), 0));
+// KPIs
+const now = new Date();
+const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+const lastMonthPrefix = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
+const currentYearStr = String(now.getFullYear());
 
-// 納品書ベースの累計出荷量・累計売上（監査モード対応）
-const totalDeliveredKg = computed(() => {
-  let notes = state.records.t_delivery_note || [];
-  if (state.auditMode.active) {
-    if (state.auditMode.startDate) notes = notes.filter(n => (n.date || '') >= state.auditMode.startDate);
-    if (state.auditMode.endDate)   notes = notes.filter(n => (n.date || '') <= state.auditMode.endDate);
-  }
-  return notes.reduce((sum, note) => {
-    const kg = (note.itemDetails || [])
-      .filter(i => (i.unit || '').toLowerCase() === 'kg')
-      .reduce((s, i) => s + (Number(i.quantity) || 0), 0);
-    return sum + kg;
-  }, 0);
-});
+const calcRevenue = (notes) => notes.reduce((sum, n) => sum + (Number(n.amount) || 0), 0);
+const calcVolume = (notes) => notes.reduce((sum, n) => sum + (n.itemDetails || []).filter(i => (i.unit || '').toLowerCase() === 'kg').reduce((s, i) => s + (Number(i.quantity) || 0), 0), 0);
 
-const totalDeliveryRevenue = computed(() => {
-  let notes = state.records.t_delivery_note || [];
-  if (state.auditMode.active) {
-    if (state.auditMode.startDate) notes = notes.filter(n => (n.date || '') >= state.auditMode.startDate);
-    if (state.auditMode.endDate)   notes = notes.filter(n => (n.date || '') <= state.auditMode.endDate);
-  }
-  return notes.reduce((sum, note) => sum + (Number(note.amount) || 0), 0);
-});
+const currentMonthNotes = computed(() => (state.records.t_delivery_note || []).filter(n => (n.date || '').startsWith(currentMonthPrefix)));
+const lastMonthNotes = computed(() => (state.records.t_delivery_note || []).filter(n => (n.date || '').startsWith(lastMonthPrefix)));
+const currentYearNotes = computed(() => (state.records.t_delivery_note || []).filter(n => (n.date || '').startsWith(currentYearStr)));
 
-// JAS Seal Ledger Totals (For stock alerts)
-const sealTotals = computed(() => {
-  const logs = state.records.t_jas_seal_record || [];
-  const purchased = logs.filter(l => l.type === 'purchase').reduce((sum, l) => sum + Number(l.qty), 0);
-  const used = logs.filter(l => l.type === 'use').reduce((sum, l) => sum + Number(l.qty), 0);
-  const damaged = logs.filter(l => l.type === 'damage').reduce((sum, l) => sum + Number(l.qty), 0);
-  const stock = purchased - used - damaged;
-  return { purchased, used, damaged, stock };
-});
+const currentMonthRevenue = computed(() => calcRevenue(currentMonthNotes.value));
+const lastMonthRevenue = computed(() => calcRevenue(lastMonthNotes.value));
+const currentYearRevenue = computed(() => calcRevenue(currentYearNotes.value));
 
-// 🌟【JAS動的KPI集計エンジン (v3.1.4)】
-// 1. 未対応の不適合指摘事項の件数を動的カウント（dateSolved が空のもの）
+const currentMonthVolume = computed(() => calcVolume(currentMonthNotes.value));
+const lastMonthVolume = computed(() => calcVolume(lastMonthNotes.value));
+
+const revenueGrowth = computed(() => lastMonthRevenue.value === 0 ? 0 : Math.round(((currentMonthRevenue.value - lastMonthRevenue.value) / lastMonthRevenue.value) * 100));
+const volumeGrowth = computed(() => lastMonthVolume.value === 0 ? 0 : Math.round(((currentMonthVolume.value - lastMonthVolume.value) / lastMonthVolume.value) * 100));
+
+// Alerts
 const unresolvedIssuesCount = computed(() => {
   const list = state.records.t_corrective_action_record || [];
   return list.filter(item => !item.dateSolved).length;
 });
 
-// 2. 有効な資材証明書の件数を動的カウント
 const validMaterialCertsCount = computed(() => {
   const list = state.masters.m_material || [];
   const todayStr = new Date().toISOString().split('T')[0];
   return list.filter(item => item.certUrl && (!item.expiry || item.expiry >= todayStr)).length;
 });
 
-const stats = computed(() => [
-  { label: '累計出荷量', value: `${totalDeliveredKg.value.toFixed(1)} kg`, icon: BarChart3, color: 'var(--primary)' },
-  { label: '未対応の指摘事項', value: `${unresolvedIssuesCount.value} 件`, icon: AlertTriangle, color: 'var(--accent)' },
-  { label: '有効な資材証明', value: `${validMaterialCertsCount.value} 件`, icon: CheckCircle, color: '#3b82f6' },
-]);
+// Chart Data (Last 6 Months)
+const chartData = computed(() => {
+  const labels = [];
+  const revenueData = [];
+  const volumeData = [];
 
-
-const currentYear = ref(new Date().getFullYear());
-const currentMonth = ref(new Date().getMonth()); // 0-11
-const selectedDate = ref(new Date());
-
-const monthNames = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
-
-const prevMonth = () => {
-  if (currentMonth.value === 0) {
-    currentMonth.value = 11;
-    currentYear.value--;
-  } else {
-    currentMonth.value--;
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const prefix = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    labels.push(`${d.getMonth() + 1}月`);
+    
+    const notes = (state.records.t_delivery_note || []).filter(n => (n.date || '').startsWith(prefix));
+    revenueData.push(calcRevenue(notes));
+    volumeData.push(calcVolume(notes));
   }
-};
 
-const nextMonth = () => {
-  if (currentMonth.value === 11) {
-    currentMonth.value = 0;
-    currentYear.value++;
-  } else {
-    currentMonth.value++;
-  }
-};
-
-const daysInMonth = computed(() => {
-  const year = currentYear.value;
-  const month = currentMonth.value;
-  
-  const firstDayIndex = new Date(year, month, 1).getDay();
-  const totalDays = new Date(year, month + 1, 0).getDate();
-  const prevTotalDays = new Date(year, month, 0).getDate();
-  
-  const days = [];
-  
-  for (let i = firstDayIndex - 1; i >= 0; i--) {
-    days.push({
-      day: prevTotalDays - i,
-      month: month === 0 ? 11 : month - 1,
-      year: month === 0 ? year - 1 : year,
-      isCurrentMonth: false
-    });
-  }
-  
-  for (let i = 1; i <= totalDays; i++) {
-    days.push({
-      day: i,
-      month: month,
-      year: year,
-      isCurrentMonth: true
-    });
-  }
-  
-  const remaining = 42 - days.length;
-  for (let i = 1; i <= remaining; i++) {
-    days.push({
-      day: i,
-      month: month === 11 ? 0 : month + 1,
-      year: month === 11 ? year + 1 : year,
-      isCurrentMonth: false
-    });
-  }
-  
-  return days;
+  return {
+    labels,
+    datasets: [
+      {
+        type: 'bar',
+        label: '売上 (円)',
+        backgroundColor: '#3b82f6',
+        yAxisID: 'y',
+        data: revenueData,
+        borderRadius: 4,
+        barThickness: 30
+      },
+      {
+        type: 'line',
+        label: '出荷量 (kg)',
+        borderColor: '#10b981',
+        backgroundColor: '#10b981',
+        yAxisID: 'y1',
+        data: volumeData,
+        tension: 0.3,
+        borderWidth: 3
+      }
+    ]
+  };
 });
 
-const getEventsForDay = (y, m, d) => {
-  const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-  return (state.records.t_work_record || []).filter(r => r.date === dateStr);
+const chartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: { mode: 'index', intersect: false },
+  plugins: {
+    legend: { position: 'top' },
+    tooltip: {
+      callbacks: {
+        label: function(context) {
+          let label = context.dataset.label || '';
+          if (label) label += ': ';
+          if (context.parsed.y !== null) {
+            label += context.dataset.yAxisID === 'y' 
+              ? `¥${context.parsed.y.toLocaleString()}`
+              : `${context.parsed.y.toLocaleString()} kg`;
+          }
+          return label;
+        }
+      }
+    }
+  },
+  scales: {
+    y: { 
+      type: 'linear', 
+      display: true, 
+      position: 'left', 
+      title: { display: false, text: '売上 (円)' },
+      ticks: { callback: (value) => `¥${value.toLocaleString()}` }
+    },
+    y1: { 
+      type: 'linear', 
+      display: true, 
+      position: 'right', 
+      grid: { drawOnChartArea: false }, 
+      title: { display: false, text: '出荷量 (kg)' },
+      ticks: { callback: (value) => `${value} kg` }
+    }
+  }
 };
+
+// Recent Activity
+const recentWork = computed(() => {
+  let records = [...(state.records.t_work_record || [])];
+  records.sort((a, b) => new Date(b.date) - new Date(a.date));
+  return records.slice(0, 8);
+});
 
 const getEventCategory = (content) => {
   if (content.includes('播種') || content.includes('定植')) return 'seed';
@@ -167,154 +167,130 @@ const getCategoryLabel = (content) => {
   if (content.includes('肥料')) return '肥料投入';
   return 'その他作業';
 };
-
-const selectedEvents = computed(() => {
-  const y = selectedDate.value.getFullYear();
-  const m = selectedDate.value.getMonth();
-  const d = selectedDate.value.getDate();
-  return getEventsForDay(y, m, d);
-});
-
-const selectDay = (dayObj) => {
-  selectedDate.value = new Date(dayObj.year, dayObj.month, dayObj.day);
-};
-
-const isSameDay = (dayObj, dateObj) => {
-  return dayObj.year === dateObj.getFullYear() && 
-         dayObj.month === dateObj.getMonth() && 
-         dayObj.day === dateObj.getDate();
-};
-
-const isToday = (dayObj) => {
-  const now = new Date();
-  return dayObj.year === now.getFullYear() && 
-         dayObj.month === now.getMonth() && 
-         dayObj.day === now.getDate();
-};
 </script>
 
 <template>
   <div class="pc-dashboard animate-slide-up">
-    <!-- Header Summary -->
+    <!-- Header Summary (KPIs) -->
     <div class="stats-grid">
-      <div v-for="s in stats" :key="s.label" class="card glass stat-card">
-        <div class="stat-icon" :style="{ backgroundColor: s.color + '22', color: s.color }">
-          <component :is="s.icon" size="24" />
-        </div>
-        <div class="stat-info">
-          <span class="label">{{ s.label }}</span>
-          <span class="value">{{ s.value }}</span>
+      <!-- 今月の売上 -->
+      <div class="stat-card glass p-4">
+        <div class="flex items-center gap-4">
+          <div class="stat-icon bg-blue-100 text-blue-600">
+            <Banknote size="24" />
+          </div>
+          <div>
+            <span class="label text-gray-500 text-sm font-medium">今月の売上（税込）</span>
+            <div class="value text-2xl font-bold">¥{{ currentMonthRevenue.toLocaleString() }}</div>
+            <div class="trend flex items-center gap-1 text-sm font-medium mt-1" :class="revenueGrowth >= 0 ? 'text-green-600' : 'text-red-500'">
+              <component :is="revenueGrowth >= 0 ? TrendingUp : TrendingDown" size="14" />
+              <span>前月比 {{ revenueGrowth >= 0 ? '+' : '' }}{{ revenueGrowth }}%</span>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="stat-card glass">
-        <span class="label">累計出荷量</span>
-        <div class="val">{{ totalDeliveredKg.toFixed(1) }} <small>kg</small></div>
-        <div class="trend up" style="color:#10b981;">納品書から集計</div>
+      
+      <!-- 今月の出荷量 -->
+      <div class="stat-card glass p-4">
+        <div class="flex items-center gap-4">
+          <div class="stat-icon bg-emerald-100 text-emerald-600">
+            <Activity size="24" />
+          </div>
+          <div>
+            <span class="label text-gray-500 text-sm font-medium">今月の出荷量</span>
+            <div class="value text-2xl font-bold">{{ currentMonthVolume.toLocaleString() }} kg</div>
+            <div class="trend flex items-center gap-1 text-sm font-medium mt-1" :class="volumeGrowth >= 0 ? 'text-green-600' : 'text-red-500'">
+              <component :is="volumeGrowth >= 0 ? TrendingUp : TrendingDown" size="14" />
+              <span>前月比 {{ volumeGrowth >= 0 ? '+' : '' }}{{ volumeGrowth }}%</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="stat-card glass">
-        <span class="label">累計売上</span>
-        <div class="val" style="font-size:1.1rem;">¥{{ totalDeliveryRevenue.toLocaleString() }}</div>
-        <div class="trend up" style="color:#10b981;">納品書（税込）</div>
+
+      <!-- 今年の累計売上 -->
+      <div class="stat-card glass p-4">
+        <div class="flex items-center gap-4">
+          <div class="stat-icon bg-purple-100 text-purple-600">
+            <BarChart3 size="24" />
+          </div>
+          <div>
+            <span class="label text-gray-500 text-sm font-medium">{{ currentYearStr }}年 累計売上</span>
+            <div class="value text-2xl font-bold">¥{{ currentYearRevenue.toLocaleString() }}</div>
+            <div class="trend flex items-center gap-1 text-sm font-medium mt-1 text-gray-400">
+              <span>納品書ベースで集計</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- アラート -->
+      <div class="stat-card glass p-4 border-l-4" :class="unresolvedIssuesCount > 0 ? 'border-red-500' : 'border-blue-500'">
+        <div class="flex items-center gap-4">
+          <div class="stat-icon" :class="unresolvedIssuesCount > 0 ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'">
+            <AlertTriangle size="24" v-if="unresolvedIssuesCount > 0" />
+            <CheckCircle size="24" v-else />
+          </div>
+          <div>
+            <span class="label text-gray-500 text-sm font-medium">システム状況</span>
+            <div v-if="unresolvedIssuesCount > 0">
+              <div class="value text-lg font-bold text-red-600">未対応の指摘事項: {{ unresolvedIssuesCount }}件</div>
+              <div class="trend flex items-center gap-1 text-sm font-medium mt-1 text-red-500">
+                <span>至急対応が必要です</span>
+              </div>
+            </div>
+            <div v-else>
+              <div class="value text-lg font-bold text-green-600">すべて正常</div>
+              <div class="trend flex items-center gap-1 text-sm font-medium mt-1 text-gray-400">
+                <span>有効な資材証明: {{ validMaterialCertsCount }}件</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
     <div class="main-grid">
-      <!-- Left Column: Alerts & Status -->
+      <!-- Left Column: Trend Chart -->
       <div class="column">
-        <section class="card glass calendar-card">
-          <div class="section-header">
-            <CalendarIcon size="20" class="text-primary" />
-            <h3>JAS栽培計画スケジュール</h3>
-            <div class="calendar-nav ml-auto">
-              <button @click="prevMonth" class="btn-arrow">&lt;</button>
-              <span class="month-title">{{ currentYear }}年 {{ monthNames[currentMonth] }}</span>
-              <button @click="nextMonth" class="btn-arrow">&gt;</button>
-            </div>
+        <section class="card glass chart-card" style="min-height: 400px; display: flex; flex-direction: column;">
+          <div class="section-header" style="margin-bottom: 1.5rem;">
+            <BarChart3 size="20" class="text-primary" />
+            <h3>売上・出荷量 推移（過去6ヶ月）</h3>
           </div>
-          
-          <div class="calendar-grid">
-            <!-- Week Header -->
-            <div class="weekdays">
-              <span v-for="d in ['日', '月', '火', '水', '木', '金', '土']" :key="d" :class="{ sat: d==='土', sun: d==='日' }">{{ d }}</span>
-            </div>
-            
-            <!-- Days Grid -->
-            <div class="days">
-              <div 
-                v-for="(d, idx) in daysInMonth" 
-                :key="idx" 
-                class="day-cell"
-                :class="{ 
-                  'other-month': !d.isCurrentMonth, 
-                  'selected': isSameDay(d, selectedDate),
-                  'today': isToday(d)
-                }"
-                @click="selectDay(d)"
-              >
-                <span class="day-num">{{ d.day }}</span>
-                <!-- Dots for Events -->
-                <div class="event-dots">
-                  <span 
-                    v-for="e in getEventsForDay(d.year, d.month, d.day).slice(0, 3)" 
-                    :key="e.id" 
-                    class="dot" 
-                    :class="getEventCategory(e.content)"
-                  ></span>
-                </div>
-              </div>
-            </div>
+          <div style="flex: 1; position: relative; min-height: 350px;">
+            <Bar :data="chartData" :options="chartOptions" />
           </div>
-          
         </section>
       </div>
 
-      <!-- Right Column: Selected Day Activity -->
+      <!-- Right Column: Recent Activity -->
       <div class="column">
-        <section class="card glass activity-log">
+        <section class="card glass activity-log" style="height: 100%;">
           <div class="section-header">
             <Clock size="20" />
-            <h3>{{ selectedDate.getFullYear() }}年{{ selectedDate.getMonth() + 1 }}月{{ selectedDate.getDate() }}日の現場活動</h3>
-            <button @click="actions.setActiveTab('history')" class="btn-text">すべて表示 <ArrowRight size="14" /></button>
+            <h3>最近の現場活動</h3>
+            <button @click="actions.setActiveTab('history')" class="btn-text ml-auto">すべて表示 <ArrowRight size="14" /></button>
           </div>
-          <div class="activity-list">
-            <div v-if="selectedEvents.length === 0" class="empty">
-              この日の活動記録はありません
-            </div>
-            <div v-for="e in selectedEvents" :key="e.id" class="activity-item">
-              <div class="time">
-                <span class="category-pill" :class="getEventCategory(e.content)">
-                  {{ getCategoryLabel(e.content) }}
-                </span>
-              </div>
-              <div class="content">
-                <strong>{{ state.masters.m_field.find(f => f.id === e.fieldId)?.name || '' }}</strong>
-                <p>{{ e.content }}</p>
-                <span class="worker"><Clock size="12" style="display:inline; margin-right: 4px;" />担当者: {{ e.workerName }}</span>
-              </div>
-              <div class="status-badge washed">完了</div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Right Column: Recent Activity (Restored) -->
-        <section class="card glass activity-log" style="margin-top: 1.5rem;">
-          <div class="section-header">
-            <Clock size="20" />
-            <h3>最近の現場活動（全体）</h3>
-            <button @click="actions.setActiveTab('history')" class="btn-text">すべて表示 <ArrowRight size="14" /></button>
-          </div>
-          <div class="activity-list">
+          <div class="activity-list mt-2">
             <div v-if="state.records.t_work_record.length === 0" class="empty">
               記録がまだありません
             </div>
-            <div v-for="w in recentWork" :key="w.id" class="activity-item">
-              <div class="time" style="width: 80px;">{{ w.date }}</div>
-              <div class="content">
-                <strong>{{ state.masters.m_field.find(f => f.id === w.fieldId)?.name }}</strong>
-                <p>{{ w.content }}</p>
-                <span class="worker"><Clock size="12" style="display:inline; margin-right: 4px;" />担当者: {{ w.workerName }}</span>
+            <div v-for="w in recentWork" :key="w.id" class="activity-item group">
+              <div class="time">{{ w.date }}</div>
+              <div class="content flex-1">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="category-pill" :class="getEventCategory(w.content)">
+                    {{ getCategoryLabel(w.content) }}
+                  </span>
+                  <strong class="text-gray-800">{{ state.masters.m_field.find(f => f.id === w.fieldId)?.name }}</strong>
+                </div>
+                <p class="text-gray-600 text-sm leading-relaxed">{{ w.content }}</p>
+                <div class="flex items-center gap-2 mt-2">
+                  <span class="worker bg-gray-100 px-2 py-1 rounded text-xs font-medium text-gray-500">
+                    <Clock size="10" class="inline mr-1" />{{ w.workerName }}
+                  </span>
+                </div>
               </div>
-              <div class="status-badge washed">完了</div>
             </div>
           </div>
         </section>
@@ -326,41 +302,29 @@ const isToday = (dayObj) => {
 <style scoped>
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 1.5rem;
   margin-bottom: 2rem;
 }
 
 .stat-card {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 }
 
 .stat-icon {
-  width: 56px;
-  height: 56px;
-  border-radius: var(--radius-md);
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.stat-info .label {
-  display: block;
-  font-size: 0.875rem;
-  color: var(--text-soft);
-  font-weight: 500;
-}
-
-.stat-info .value {
-  font-size: 1.5rem;
-  font-weight: 800;
-}
-
 .main-grid {
   display: grid;
-  grid-template-columns: 1fr 1.5fr;
+  grid-template-columns: 2fr 1.2fr;
   gap: 1.5rem;
 }
 
@@ -374,418 +338,114 @@ const isToday = (dayObj) => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-bottom: 1.25rem;
 }
 
 .section-header h3 {
   font-size: 1.1rem;
   font-weight: 700;
-  margin-right: auto;
-}
-
-.icon-warning { color: var(--accent); }
-
-.alert-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.alert-item {
-  padding: 1rem;
-  border-radius: var(--radius-sm);
-  border-left: 4px solid #ccc;
-  background: var(--bg-surface);
-}
-
-.alert-item.warning { border-left-color: var(--accent); }
-.alert-item.info { border-left-color: #3b82f6; }
-
-.alert-item p {
-  font-size: 0.9rem;
-  font-weight: 500;
-  margin-bottom: 0.25rem;
-}
-
-.alert-item .date {
-  font-size: 0.75rem;
-  color: var(--text-soft);
+  color: #1e293b;
 }
 
 .activity-list {
   display: flex;
   flex-direction: column;
+  gap: 1rem;
 }
 
 .activity-item {
   display: flex;
   align-items: flex-start;
   gap: 1rem;
-  padding: 1rem 0;
-  border-bottom: 1px solid var(--glass-border);
+  padding: 1rem;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
 }
 
-.activity-item:last-child { border-bottom: none; }
+.activity-item:hover {
+  background: white;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+}
 
 .activity-item .time {
   font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-soft);
-  min-width: 80px;
-}
-
-.activity-item .content strong {
-  display: block;
-  font-size: 0.95rem;
-}
-
-.activity-item .content p {
-  font-size: 0.875rem;
-  color: var(--text-soft);
-}
-
-.status-badge {
-  margin-left: auto;
-  font-size: 0.7rem;
   font-weight: 700;
-  padding: 0.25rem 0.5rem;
-  border-radius: var(--radius-full);
+  color: #64748b;
+  min-width: 80px;
+  padding-top: 0.25rem;
 }
 
-.status-badge.washed {
-  background: hsla(142, 60%, 25%, 0.1);
-  color: var(--primary);
+.category-pill {
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #64748b;
 }
+
+.category-pill.seed { background: #dcfce7; color: #166534; }
+.category-pill.harvest { background: #dbeafe; color: #1e40af; }
+.category-pill.pest { background: #fef3c7; color: #92400e; }
 
 .btn-text {
   background: transparent;
   color: var(--primary);
   font-size: 0.85rem;
-  padding: 0;
-}
-
-.placeholder-calendar {
-  height: 200px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed var(--glass-border);
-  border-radius: var(--radius-sm);
-  color: var(--text-soft);
-}
-
-/* Sync Card Styles */
-.sync-card {
-  border-left: 4px solid #3b82f6 !important;
-  margin-bottom: 1.5rem;
-}
-
-.sync-card .section-header {
-  margin-bottom: 0.75rem;
-}
-
-.sync-card .dot {
-  width: 10px;
-  height: 10px;
-  background: #94a3b8;
-  border-radius: 50%;
-  margin-left: 0.5rem;
-}
-
-.sync-card .dot.green {
-  background: #10b981;
-  box-shadow: 0 0 10px #10b981;
-}
-
-.status-text {
-  font-size: 0.85rem;
-  color: var(--text-soft);
-  margin-bottom: 1rem;
   font-weight: 600;
-}
-
-.sync-buttons {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-}
-
-.btn-sync-pc {
+  padding: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.6rem;
-  border-radius: var(--radius-sm);
-  font-size: 0.8rem;
-  font-weight: 700;
+  gap: 4px;
   cursor: pointer;
-  transition: all 0.2s;
-  border: 1px solid transparent;
 }
 
-.btn-sync-pc.upload {
-  background: #3b82f6;
-  color: white;
+.btn-text:hover {
+  text-decoration: underline;
 }
 
-.btn-sync-pc.download {
-  background: transparent;
-  border-color: #f59e0b;
-  color: #f59e0b;
-}
-
-.btn-sync-pc:hover {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
-}
-
-.btn-sync-pc:active {
-  transform: translateY(0);
-}
-
-.text-blue {
-  color: #3b82f6 !important;
-}
-
-/* ==========================================
- * Premium Live Calendar Styles (v2.4.0)
- * ========================================== */
-.calendar-card {
-  padding-bottom: 1.5rem !important;
-}
-
-.ml-auto {
-  margin-left: auto;
-}
-
-.calendar-nav {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.btn-arrow {
-  background: rgba(0, 0, 0, 0.05);
-  border: none;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-  font-size: 0.85rem;
-  transition: all 0.2s;
-  color: var(--text-main);
-}
-.btn-arrow:hover {
-  background: var(--primary);
-  color: white;
-}
-
-.month-title {
-  font-size: 0.85rem;
-  font-weight: 800;
-  min-width: 80px;
-  text-align: center;
-}
-
-.calendar-grid {
-  background: var(--bg-surface, #f8fafc);
-  border-radius: 12px;
-  padding: 0.75rem;
-  border: 1px solid var(--glass-border, #e2e8f0);
-}
-
-.weekdays {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  text-align: center;
-  font-size: 0.7rem;
-  font-weight: 800;
-  color: var(--text-soft, #64748b);
-  margin-bottom: 0.5rem;
-}
-.weekdays .sat { color: #2563eb; }
-.weekdays .sun { color: #dc2626; }
-
-.days {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 3px;
-}
-
-.day-cell {
-  aspect-ratio: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.2rem;
-  background: white;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  user-select: none;
-  border: 1px solid rgba(0,0,0,0.02);
-}
-.day-cell:hover {
-  background: var(--primary-glow, #f0fdf4);
-  transform: scale(1.05);
-}
-
-.day-cell.other-month {
-  color: #cbd5e1;
-}
-
-.day-cell.selected {
-  background: var(--primary) !important;
-  color: white !important;
-}
-
-.day-cell.today {
-  border: 2px solid var(--primary);
-}
-
-.day-num {
-  font-size: 0.75rem;
-  font-weight: 800;
-}
-
-.event-dots {
-  display: flex;
-  gap: 2px;
-  height: 4px;
-}
-
-.event-dots .dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-}
-.event-dots .dot.seed { background: #16a34a; }
-.event-dots .dot.harvest { background: #3b82f6; }
-.event-dots .dot.pest { background: #f59e0b; }
-.event-dots .dot.other { background: #64748b; }
-
-/* Day Details Styles */
-.day-details {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px dashed var(--glass-border, #e2e8f0);
-  animation: slide-up-soft 0.3s ease-out;
-}
-
-.details-title {
-  font-size: 0.8rem;
-  font-weight: 800;
-  color: #475569;
-  margin-bottom: 0.75rem;
-}
-
-.no-events {
-  font-size: 0.75rem;
-  color: var(--text-soft, #64748b);
-  text-align: center;
-  padding: 1rem 0;
-}
-
-.event-list {
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.detail-event-item {
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.5rem;
-  border-radius: 8px;
-  background: white;
-  margin-bottom: 0.4rem;
-  border: 1px solid var(--glass-border, #e2e8f0);
-  border-left: 4px solid #64748b;
-  transition: all 0.2s;
-  align-items: center;
-}
-.detail-event-item:hover {
-  transform: translateX(2px);
-}
-
-.detail-event-item.seed { border-left-color: #16a34a; }
-.detail-event-item.harvest { border-left-color: #3b82f6; }
-.detail-event-item.pest { border-left-color: #f59e0b; }
-
-.category-pill {
-  font-size: 0.6rem;
-  font-weight: 900;
-  padding: 0.1rem 0.3rem;
-  border-radius: 4px;
-  background: #f1f5f9;
-  color: #64748b;
-  white-space: nowrap;
-}
-.category-pill.seed { background: #dcfce7; color: #166534; }
-.category-pill.harvest { background: #dbeafe; color: #1e40af; }
-.category-pill.pest { background: #fef3c7; color: #92400e; }
-
-.event-main {
-  flex: 1;
-}
-.event-main strong {
-  display: block;
-  font-size: 0.8rem;
-  color: #1e293b;
-}
-.event-main p {
-  font-size: 0.75rem;
-  color: #475569;
-  margin: 0.05rem 0;
-}
-.event-main .worker {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: 0.65rem;
-  color: #94a3b8;
-  font-weight: 700;
-}
-
-
-.alert-empty {
-  padding: 1.5rem;
-  text-align: center;
-  border-radius: var(--radius-lg);
-  border: 1px solid rgba(22, 163, 74, 0.15);
-  background: rgba(22, 163, 74, 0.03);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  margin: 0.5rem 0;
-  animation: slide-up-soft 0.3s ease-out;
-}
-.alert-empty .empty-icon {
-  font-size: 1.5rem;
-  margin-bottom: 0.25rem;
-}
-.alert-empty p {
-  font-size: 0.85rem;
-  font-weight: 800;
-  color: #15803d;
-  margin: 0;
-}
-.alert-empty .empty-desc {
-  font-size: 0.725rem;
-  color: #64748b;
-  font-weight: 500;
-  line-height: 1.4;
-}
-
-@keyframes slide-up-soft {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+/* Tailwinds Utility Fallbacks */
+.flex { display: flex; }
+.items-center { align-items: center; }
+.gap-1 { gap: 0.25rem; }
+.gap-2 { gap: 0.5rem; }
+.gap-4 { gap: 1rem; }
+.p-4 { padding: 1rem; }
+.px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+.py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+.mt-1 { margin-top: 0.25rem; }
+.mt-2 { margin-top: 0.5rem; }
+.mb-1 { margin-bottom: 0.25rem; }
+.ml-auto { margin-left: auto; }
+.flex-1 { flex: 1; }
+.inline { display: inline; }
+.mr-1 { margin-right: 0.25rem; }
+.text-xs { font-size: 0.75rem; line-height: 1rem; }
+.text-sm { font-size: 0.875rem; line-height: 1.25rem; }
+.text-lg { font-size: 1.125rem; line-height: 1.75rem; }
+.text-2xl { font-size: 1.5rem; line-height: 2rem; }
+.font-medium { font-weight: 500; }
+.font-bold { font-weight: 700; }
+.rounded { border-radius: 0.25rem; }
+.border-l-4 { border-left-width: 4px; }
+.border-red-500 { border-left-color: #ef4444; }
+.border-blue-500 { border-left-color: #3b82f6; }
+.text-gray-400 { color: #9ca3af; }
+.text-gray-500 { color: #6b7280; }
+.text-gray-600 { color: #4b5563; }
+.text-gray-800 { color: #1f2937; }
+.text-blue-600 { color: #2563eb; }
+.text-emerald-600 { color: #059669; }
+.text-purple-600 { color: #9333ea; }
+.text-red-500 { color: #ef4444; }
+.text-red-600 { color: #dc2626; }
+.text-green-600 { color: #16a34a; }
+.bg-blue-100 { background-color: #dbeafe; }
+.bg-emerald-100 { background-color: #d1fae5; }
+.bg-purple-100 { background-color: #f3e8ff; }
+.bg-red-100 { background-color: #fee2e2; }
+.bg-gray-100 { background-color: #f3f4f6; }
+.leading-relaxed { line-height: 1.625; }
 </style>
