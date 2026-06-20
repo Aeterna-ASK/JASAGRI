@@ -860,7 +860,7 @@ const exportExcel = () => {
           <div class="modal-body invoice-print-area" style="background: white; padding: 2rem; color: #333;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem;">
               <div>
-                <h1 style="font-size: 2rem; font-weight: normal; letter-spacing: 0.5em; border-bottom: 2px solid #333; padding-bottom: 0.5rem; margin-bottom: 2rem;">請求書</h1>
+                <h1 style="font-size: 2rem; font-weight: normal; letter-spacing: 0.5em; border-bottom: 2px solid #333; padding-bottom: 0.5rem; margin-top: 0; margin-bottom: 2rem;">請求書</h1>
                 <div style="font-size: 1.4rem; font-weight: bold; border-bottom: 1px solid #333; display: inline-block; padding-bottom: 4px;">
                   {{ getPartnerName(selectedInvoiceData.partnerId) }} 御中
                 </div>
@@ -870,10 +870,10 @@ const exportExcel = () => {
                 <p>発行月：{{ selectedInvoiceData.month.replace('-', '年') }}月</p>
                 <div style="margin-top: 1rem; text-align: left; border: 1px solid #ccc; padding: 1rem; display: inline-block; border-radius: 4px;">
                   <strong>{{ state.farmInfo.name || 'ファーム名未設定' }}</strong><br>
-                  〒{{ state.farmInfo.zipCode }}<br>
+                  <template v-if="state.farmInfo.postalCode">〒{{ state.farmInfo.postalCode }}<br></template>
                   {{ state.farmInfo.address }}<br>
-                  TEL: {{ state.farmInfo.phone }}<br>
-                  適格請求書発行事業者登録番号:<br>{{ state.farmInfo.invoiceNumber || '未設定' }}
+                  <template v-if="state.farmInfo.tel">TEL: {{ state.farmInfo.tel }}<br></template>
+                  適格請求書発行事業者登録番号:<br>{{ state.farmInfo.invoiceNo || '未設定' }}
                 </div>
               </div>
             </div>
@@ -1257,6 +1257,7 @@ const exportExcel = () => {
   body.invoice-print-active .invoice-print-area * {
     visibility: visible !important;
   }
+  body.invoice-print-active .overlay,
   body.invoice-print-active .print-preview-modal,
   body.invoice-print-active .invoice-print-area {
     visibility: visible !important;
@@ -1267,6 +1268,13 @@ const exportExcel = () => {
     margin: 0 !important;
     padding: 0 !important;
     box-shadow: none !important;
+    background: white !important;
+    border: none !important;
+  }
+  body.invoice-print-active .modal-header,
+  body.invoice-print-active .hide-on-print {
+    display: none !important;
+    visibility: hidden !important;
   }
 
   /* 3. Ensure structure */
