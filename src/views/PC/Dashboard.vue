@@ -22,10 +22,12 @@ import {
   PointElement,
   CategoryScale,
   LinearScale,
+  LineController,
+  BarController
 } from 'chart.js';
 import { Bar, Line } from 'vue-chartjs';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, LineController, BarController, Title, Tooltip, Legend);
 
 // KPIs
 const now = new Date();
