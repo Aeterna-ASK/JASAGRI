@@ -1305,7 +1305,8 @@ const exportExcel = () => {
   }
 
   /* 5. Suppress everything else */
-  body.delivery-note-print-active #app, 
+  body.delivery-note-print-active #app,
+  body.invoice-print-active #app, 
   body.delivery-note-print-active .overlay, 
   body.delivery-note-print-active .preview-header-actions,
   body.delivery-note-print-active .filter-bar,
