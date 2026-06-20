@@ -857,73 +857,80 @@ const exportExcel = () => {
               <button @click="isInvoicePreviewOpen = false" class="btn-close"><X size="24" /></button>
             </div>
           </div>
-          <div class="modal-body invoice-print-area" style="background: white; padding: 2rem; color: #333;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem;">
-              <div>
-                <h1 style="font-size: 2rem; font-weight: normal; letter-spacing: 0.5em; border-bottom: 2px solid #333; padding-bottom: 0.5rem; margin-top: 0; margin-bottom: 2rem;">請求書</h1>
-                <div style="font-size: 1.4rem; font-weight: bold; border-bottom: 1px solid #333; display: inline-block; padding-bottom: 4px;">
-                  {{ getPartnerName(selectedInvoiceData.partnerId) }} 御中
-                </div>
-                <p style="margin-top: 1.5rem;">下記の通りご請求申し上げます。</p>
-              </div>
-              <div style="text-align: right;">
-                <p>発行月：{{ selectedInvoiceData.month.replace('-', '年') }}月</p>
-                <div style="margin-top: 1rem; text-align: left; border: 1px solid #ccc; padding: 1rem; display: inline-block; border-radius: 4px;">
-                  <strong>{{ state.farmInfo.name || 'ファーム名未設定' }}</strong><br>
-                  <template v-if="state.farmInfo.postalCode">〒{{ state.farmInfo.postalCode }}<br></template>
-                  {{ state.farmInfo.address }}<br>
-                  <template v-if="state.farmInfo.tel">TEL: {{ state.farmInfo.tel }}<br></template>
-                  適格請求書発行事業者登録番号:<br>{{ state.farmInfo.invoiceNo || '未設定' }}
+          <div class="modal-body invoice-print-area printable-document" style="background: white; padding: 0; color: #333;">
+            <div class="print-page-wrapper" style="padding: 2rem; padding-top: 0;">
+              <div class="doc-header">
+                <h1>請求書</h1>
+                <div class="doc-meta">
+                  <p>発行月: {{ selectedInvoiceData.month.replace('-', '年') }}月</p>
                 </div>
               </div>
-            </div>
+              
+              <div class="doc-addresses">
+                <div class="dest-address">
+                  <h2>{{ getPartnerName(selectedInvoiceData.partnerId) }} 御中</h2>
+                  <p>下記の通りご請求申し上げます。</p>
+                </div>
+                <div class="sender-address" v-if="state.farmInfo">
+                  <h3>{{ state.farmInfo.name || 'ファーム名未設定' }}</h3>
+                  <p v-if="state.farmInfo.postalCode">〒{{ state.farmInfo.postalCode }}</p>
+                  <p>{{ state.farmInfo.address }}</p>
+                  <p v-if="state.farmInfo.tel">TEL: {{ state.farmInfo.tel }}</p>
+                  <p v-if="state.farmInfo.representative">代表者: {{ state.farmInfo.representative }}</p>
+                  <p v-if="state.farmInfo.invoiceNo" class="invoice-no">
+                    登録番号: {{ state.farmInfo.invoiceNo }}
+                  </p>
+                </div>
+              </div>
 
-            <div style="margin-bottom: 2rem; border-bottom: 3px solid #333; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: flex-end;">
-              <span style="font-size: 1.2rem;">ご請求金額（税込）</span>
-              <span style="font-size: 2rem; font-weight: bold;">¥{{ Number(selectedInvoiceData.total || 0).toLocaleString() }} -</span>
-            </div>
+              <div class="doc-total-box">
+                <span class="total-label">ご請求金額</span>
+                <span class="val">¥{{ Number(selectedInvoiceData.total || 0).toLocaleString() }}-</span>
+                <span class="tax-info">（消費税{{ state.farmInfo.taxRate || 8 }}%込）</span>
+              </div>
 
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 2rem; font-size: 0.9rem;">
-              <thead>
-                <tr style="border-bottom: 2px solid #333; border-top: 2px solid #333;">
-                  <th style="padding: 8px 4px; text-align: left; width: 100px;">納品日</th>
-                  <th style="padding: 8px 4px; text-align: left;">品目内容</th>
-                  <th style="padding: 8px 4px; text-align: right; width: 100px;">数量</th>
-                  <th style="padding: 8px 4px; text-align: right; width: 120px;">単価</th>
-                  <th style="padding: 8px 4px; text-align: right; width: 140px;">金額</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(item, idx) in selectedInvoiceData.items" :key="idx" style="border-bottom: 1px dashed #ccc;">
-                  <td style="padding: 8px 4px;">{{ item.date.substring(5).replace('-', '/') }}</td>
-                  <td style="padding: 8px 4px;">{{ item.name }}</td>
-                  <td style="padding: 8px 4px; text-align: right;">{{ item.quantity }}{{ item.unit }}</td>
-                  <td style="padding: 8px 4px; text-align: right;">¥{{ item.unitPrice.toLocaleString() }}</td>
-                  <td style="padding: 8px 4px; text-align: right;">¥{{ item.amount.toLocaleString() }}</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <div style="width: 300px; margin-left: auto;">
-              <table style="width: 100%; border-collapse: collapse; font-size: 1rem;">
-                <tr>
-                  <td style="padding: 4px; font-weight: bold;">小計（税抜）</td>
-                  <td style="padding: 4px; text-align: right;">¥{{ Number(selectedInvoiceData.subtotal).toLocaleString() }}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 4px; font-weight: bold;">消費税（{{ state.farmInfo.taxRate || 8 }}%）</td>
-                  <td style="padding: 4px; text-align: right;">¥{{ Number(selectedInvoiceData.tax).toLocaleString() }}</td>
-                </tr>
-                <tr style="border-top: 2px solid #333;">
-                  <td style="padding: 8px 4px; font-weight: bold; font-size: 1.2rem;">合計（税込）</td>
-                  <td style="padding: 8px 4px; text-align: right; font-weight: bold; font-size: 1.2rem;">¥{{ Number(selectedInvoiceData.total).toLocaleString() }}</td>
-                </tr>
+              <table class="doc-items-table">
+                <thead>
+                  <tr>
+                    <th>納品日</th>
+                    <th>品目内容</th>
+                    <th class="text-right">数量</th>
+                    <th class="text-right">単価</th>
+                    <th class="text-right">金額</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(item, idx) in selectedInvoiceData.items" :key="idx">
+                    <td>{{ item.date.substring(5).replace('-', '/') }}</td>
+                    <td>{{ item.name }}</td>
+                    <td class="text-right">{{ item.quantity }}{{ item.unit }}</td>
+                    <td class="text-right">¥{{ item.unitPrice.toLocaleString() }}</td>
+                    <td class="text-right">¥{{ item.amount.toLocaleString() }}</td>
+                  </tr>
+                </tbody>
               </table>
-            </div>
 
-            <div v-if="state.farmInfo.bankAccount" style="margin-top: 3rem; border: 1px solid #ccc; padding: 1rem; border-radius: 4px;">
-              <strong>【お振込先】</strong><br>
-              <span style="white-space: pre-wrap; display: inline-block; margin-top: 0.5rem;">{{ state.farmInfo.bankAccount }}</span>
+              <table class="doc-subtotal-table">
+                <tbody>
+                  <tr>
+                    <td class="subtotal-label">小計（税抜）</td>
+                    <td class="subtotal-val">¥{{ Number(selectedInvoiceData.subtotal).toLocaleString() }}</td>
+                  </tr>
+                  <tr>
+                    <td class="subtotal-label">消費税額（{{ state.farmInfo.taxRate || 8 }}%）</td>
+                    <td class="subtotal-val">¥{{ Number(selectedInvoiceData.tax).toLocaleString() }}</td>
+                  </tr>
+                  <tr class="grand-total-row">
+                    <td class="subtotal-label">合計（税込）</td>
+                    <td class="subtotal-val">¥{{ Number(selectedInvoiceData.total).toLocaleString() }}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div v-if="state.farmInfo.bankAccount" class="doc-footer" style="margin-top: 2rem; border: 1px solid #ccc; padding: 1rem; text-align: left;">
+                <p style="font-weight: bold;">【お振込先】</p>
+                <p style="white-space: pre-wrap; margin-top: 0.5rem;">{{ state.farmInfo.bankAccount }}</p>
+              </div>
             </div>
           </div>
         </div>
